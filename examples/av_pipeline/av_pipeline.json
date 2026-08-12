@@ -1,0 +1,39 @@
+{
+  "nodes": [
+    { "id": "acap",   "class": "CaptureNode",   "params": { "stream": "audio", "count": 3, "samples": 160 } },
+    { "id": "aenc",   "class": "StageNode",      "params": { "stream": "audio", "stage": "encode" } },
+    { "id": "apack",  "class": "StageNode",      "params": { "stream": "audio", "stage": "pack" } },
+    { "id": "anet",   "class": "StageNode",      "params": { "stream": "audio", "stage": "net" } },
+    { "id": "adec",   "class": "StageNode",      "params": { "stream": "audio", "stage": "decode" } },
+    { "id": "vcap",   "class": "CaptureNode",   "params": { "stream": "video", "count": 3, "width": 1920, "height": 1080 } },
+    { "id": "venc",   "class": "StageNode",      "params": { "stream": "video", "stage": "encode" } },
+    { "id": "vpack",  "class": "StageNode",      "params": { "stream": "video", "stage": "pack" } },
+    { "id": "vnet",   "class": "StageNode",      "params": { "stream": "video", "stage": "net" } },
+    { "id": "vdec",   "class": "StageNode",      "params": { "stream": "video", "stage": "decode" } },
+    { "id": "render", "class": "SyncRenderNode" }
+  ],
+  "paths": [
+    {
+      "name": "audio",
+      "path": [
+        { "id": "acap",  "edge": "RawAudioFrame" },
+        { "id": "aenc",  "edge": "EncodedAudio" },
+        { "id": "apack", "edge": "AudioPacket" },
+        { "id": "anet",  "edge": "AudioPacket" },
+        { "id": "adec",  "edge": "RawAudioFrame" },
+        { "id": "render","edge": "" }
+      ]
+    },
+    {
+      "name": "video",
+      "path": [
+        { "id": "vcap",  "edge": "RawVideoFrame" },
+        { "id": "venc",  "edge": "EncodedVideo" },
+        { "id": "vpack", "edge": "VideoPacket" },
+        { "id": "vnet",  "edge": "VideoPacket" },
+        { "id": "vdec",  "edge": "RawVideoFrame" },
+        { "id": "render","edge": "" }
+      ]
+    }
+  ]
+}

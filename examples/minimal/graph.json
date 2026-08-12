@@ -1,0 +1,9 @@
+{
+  "nodes": [
+    { "id": "source", "class": "SourceNode" },
+    { "id": "sink",   "class": "SinkNode" }
+  ],
+  "paths": [
+    { "name": "minimal", "path": [ { "id": "source", "edge": "PayloadEvent" }, { "id": "sink", "edge": "" } ] }
+  ]
+}
