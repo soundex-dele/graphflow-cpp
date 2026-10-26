@@ -2,7 +2,7 @@
 
 版本：v0.1；日期：2026-10-26；读取基线：`4b0c881`。
 
-GraphFlow 是领域无关的 C++17 图运行时基础库，面向工作流、Agent、行为树与媒体等上层系统。本文描述 Core/Engine 的现有边界及 AV Platform 接入要求，不把媒体专用能力纳入通用内核。平台关系见 [总体设计](../../docs/platform-design.md)。
+GraphFlow 是领域无关的 C++17 图运行时基础库，面向工作流、Agent、行为树与媒体等上层系统。本文描述 Core/Engine 的现有边界及 AV Platform 接入要求，不把媒体专用能力纳入通用内核。平台关系见 [总体设计](../../docs/architecture/platform-design.md)。
 
 ## 1. 职责与非目标
 
