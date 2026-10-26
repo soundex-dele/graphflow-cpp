@@ -18,6 +18,7 @@ add_executable(graphflow_engine_tests
     engine/graph_builder_test.cpp
     engine/json_graph_builder_test.cpp
     engine/graph_engine_test.cpp
+    engine/external_graph_test.cpp
     engine/node_factory_test.cpp
 )
 target_link_libraries(graphflow_engine_tests PRIVATE

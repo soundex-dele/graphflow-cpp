@@ -87,6 +87,82 @@ bool GraphEngine::loadFromJson(const nlohmann::json& configs) {
     return applyBuildResult(m_builder->buildFromJson(configs));
 }
 
+BuildResult GraphEngine::buildFromNodes(
+    const std::vector<std::shared_ptr<core::GraphNode>>& nodes,
+    const std::vector<NodeConnection>& connections, GraphBuilder::EdgeTransport transport) {
+    BuildResult result;
+    std::unordered_set<const core::NodeBase*> oldNodes;
+    for (const auto& path : m_paths) {
+        for (const auto& node : path->getNodes()) oldNodes.insert(node.get());
+    }
+    std::unordered_set<std::string> ids;
+    for (size_t i = 0; i < nodes.size(); ++i) {
+        const auto& node = nodes[i];
+        const auto ptr = "/nodes/" + std::to_string(i);
+        if (!node || node->state() != core::LifecycleState::Created || oldNodes.count(node.get())) {
+            result.errors.emplace_back("node must be fresh and independent of the current graph", ptr);
+            continue;
+        }
+        if (node->getName().empty() || !ids.insert(node->getName()).second) {
+            result.errors.emplace_back("node name must be nonempty and unique", ptr);
+        }
+        const auto validateEdges = [&](const auto& edges) {
+            for (const auto& edge : edges) {
+                if (edge.isConnection()) {
+                    result.errors.emplace_back("node already has connection edges", ptr);
+                    break;
+                }
+            }
+        };
+        validateEdges(node->getPubEdges());
+        validateEdges(node->getSubEdges());
+    }
+    for (size_t i = 0; i < connections.size(); ++i) {
+        const auto& edge = connections[i];
+        if (!ids.count(edge.from) || !ids.count(edge.to)) {
+            result.errors.emplace_back("unknown connection endpoint: " + edge.from + "->" + edge.to,
+                                       "/connections/" + std::to_string(i));
+        }
+    }
+    if (!result.ok() || nodes.empty()) return result;
+
+    GraphBuilder builder;
+    builder.setEventBus(m_eventBus.get());
+    std::vector<std::string> names;
+    for (const auto& node : nodes) {
+        builder.registerNode(node->getName(), node);
+        names.push_back(node->getName());
+    }
+    auto path = builder.buildGraph(names, connections, transport);
+    for (const auto& node : nodes) node->setEventBus(m_eventBus.get());
+    result.paths.push_back(std::move(path));
+    return result;
+}
+
+bool GraphEngine::loadFromNodes(
+    const std::vector<std::shared_ptr<core::GraphNode>>& nodes,
+    const std::vector<NodeConnection>& connections, GraphBuilder::EdgeTransport transport) {
+    if (state() != core::LifecycleState::Created) return false;
+    return applyBuildResult(buildFromNodes(nodes, connections, transport));
+}
+
+bool GraphEngine::reloadFromNodes(
+    const std::vector<std::shared_ptr<core::GraphNode>>& nodes,
+    const std::vector<NodeConnection>& connections, GraphBuilder::EdgeTransport transport) {
+    if (state() == core::LifecycleState::Released) return false;
+    if (state() == core::LifecycleState::Created) return loadFromNodes(nodes, connections, transport);
+    auto result = buildFromNodes(nodes, connections, transport);
+    if (!result.ok()) {
+        for (const auto& error : result.errors) {
+            LOG_ERROR(TAG, "build error @ " << error.jsonPointer << ": " << error.message);
+        }
+        return false;
+    }
+    const auto previousState = state();
+    if (previousState == core::LifecycleState::Running) stop();
+    return applyReloadResult(std::move(result), previousState);
+}
+
 bool GraphEngine::reloadFromJsonFile(const std::string& configFile) {
     if (state() == core::LifecycleState::Released) {
         LOG_ERROR(TAG, "reload after release not allowed");

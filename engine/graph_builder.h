@@ -25,7 +25,16 @@ struct PathNodeSpec {
     std::string condition;
 };
 
-// 内部装配器：registerNode + build(specs)，为每条边创建独立 EventBus。
+// 节点间的有向连接；端点引用节点 ID，类型和路由条件可省略。
+struct NodeConnection {
+    std::string from;
+    std::string to;
+    std::string dataType;
+    std::string condition;
+};
+
+// 内部装配器：registerNode + build(specs)，默认每条边创建独立 EventBus。
+// 显式选择 External 时只连接拓扑，由调用方提供数据传输。
 //
 // 边创建策略（审查 3.2 修复 + 语义路由扩展）：
 //   按路径中的相邻位置建边，不再先按节点名折叠邻接表。
@@ -38,6 +47,9 @@ struct PathNodeSpec {
 //   如需跨路径共享须显式扩展接口。
 class GraphBuilder {
 public:
+    // External edges describe a topology whose data is transferred by the caller
+    // (e.g. media channels). They have no per-edge EventBus.
+    enum class EdgeTransport { EventBus, External };
     GraphBuilder();
     ~GraphBuilder();
 
@@ -67,6 +79,15 @@ public:
 
     // 构建路径（含 condition）：按相邻位置建边，condition 写入连接边身份与边总线键。
     std::shared_ptr<core::GraphPath> build(const std::vector<PathNodeSpec>& specs);
+    std::shared_ptr<core::GraphPath> build(const std::vector<PathNodeSpec>& specs,
+                                         EdgeTransport transport);
+
+    // 按显式关系建图，nodeNames 决定生命周期调用顺序（不进行拓扑排序）。
+    // 支持分支、汇聚、环和孤立节点；所有连接端点必须在 nodeNames 中。
+    std::shared_ptr<core::GraphPath> buildGraph(
+        const std::vector<std::string>& nodeNames,
+        const std::vector<NodeConnection>& connections,
+        EdgeTransport transport = EdgeTransport::EventBus);
 
     // 清空已注册节点与边总线表（供事务化加载/失败回滚使用）。
     void reset();

@@ -1,5 +1,7 @@
 # graphflow-cpp
 
+[设计文档](docs/design.md)说明 Core/Engine、事件与生命周期契约，以及 AV Platform 媒体适配边界。
+
 GraphFlow 的 C++17 图运行时基础库。它提供生命周期、事件总线、图节点、图路径、黑板、JSON 图构建和 `GraphEngine` 门面，适合作为事件驱动工作流、Agent、量化流程和行为树等上层引擎的底座。
 
 本仓库只包含 C++ Core 与 GraphEngine；Python 绑定、Agent Engine、Quant Engine 和 BehaviorTree 分别位于独立仓库中。
@@ -8,6 +10,7 @@ GraphFlow 的 C++17 图运行时基础库。它提供生命周期、事件总线
 
 - 通过 `EventT<T>` 定义强类型事件，支持同步和异步发布/订阅。
 - 通过 JSON 声明节点、路径、边类型和条件，并由注册的节点工厂创建实例。
+- 也可直接传入外部构建的节点实例和连接关系，由引擎装配图，无需 JSON 或节点工厂。
 - 同一节点可出现在多条路径中，用于扇入、扇出、循环和多流汇聚。
 - `Blackboard` 为同一引擎内的节点提供共享状态。
 - `GraphEngine` 统一管理加载、热重载和生命周期。
@@ -104,6 +107,38 @@ engine.release();
 
 `class` 必须与 `registerCreator()` 注册的名称一致。路径中每个非末尾元素的 `edge` 描述从当前节点到下一个节点所承载的事件类型，可选 `condition` 用于条件路由；末尾节点不产生出边。节点参数可通过 `params` 传入 `NodeConfig`。
 
+## 外部节点与连接关系
+
+`loadFromNodes(nodes, connections)` 接受已有的 `shared_ptr<GraphNode>` 和有向连接列表。外部无需创建 `GraphPath`，也无需注册 `NodeCreator`；`getName()` 是连接端点使用的节点 ID。
+
+```cpp
+#include "engine/graph_engine.h"
+
+using namespace graphflow;
+engine::GraphEngine graph;
+
+// 示例使用基础节点；业务中替换为自己的 GraphNode 派生类，注入业务依赖。
+auto source = std::make_shared<core::GraphNode>("source", nullptr);
+auto preview = std::make_shared<core::GraphNode>("preview", nullptr);
+auto sink = std::make_shared<core::GraphNode>("sink", nullptr);
+
+// NodeConnection = {from, to, dataType, condition}；后两项可省略。
+if (!graph.loadFromNodes({source, preview, sink}, {
+        {"source", "preview", "PayloadEvent"},
+        {"source", "sink", "PayloadEvent", "record"}
+    }) || !graph.init() || !graph.start()) {
+    return 1;
+}
+graph.stop();
+graph.release();
+```
+
+关系支持分支、汇聚、环、自连接和重复边去重；未出现在关系中的孤立节点同样参与生命周期。节点列表决定生命周期调用顺序，引擎不进行拓扑排序，也不会自动倒序启动/释放。默认每条不同身份的边使用独立 EventBus，沿用 `dataType` 和 `condition` 的事件路由规则。媒体等自行传输数据的图，可将第三个参数设为 `engine::GraphBuilder::EdgeTransport::External`，只建立拓扑。
+
+传入节点必须处于 `Created`、名称非空且唯一、尚未挂载连接边；连接端点必须存在。引擎自动绑定节点控制总线，共享持有节点并接管生命周期；业务资源和可选 Blackboard 由调用方在创建节点时注入。成功加载后，调用方保留指针可用于业务访问，但不得独立驱动生命周期或修改拓扑。依赖引擎的总线/黑板不可在引擎销毁后访问。
+
+`reloadFromNodes(nodes, connections)` 与 JSON 重载使用同一套生命周期切换和回滚逻辑，两种入口可以互相切换。替换图必须使用新节点实例，不能复用旧图节点。输入校验失败保留旧图且不修改候选节点；重载期间初始化/启动失败会释放候选节点，并尝试恢复旧图运行，重试需提供新实例。空节点列表加空连接列表表示空图。
+
 ## 生命周期
 
 典型顺序为：
@@ -114,12 +149,12 @@ load -> init -> start -> stop -> release
                   └───────┘  可再次 start
 ```
 
-- `loadFromJson*()` 首次构建图；只能在 `Created` 状态调用。
+- `loadFromJson*()` / `loadFromNodes()` 首次构建图；只能在 `Created` 状态调用。
 - `init()` 用于建立订阅和准备资源。
 - `start()` 用于启动节点或发布首个事件。
 - `stop()` 停止当前运行，但保留再次 `start()` 的能力。
 - `release()` 是终态清理；若引擎仍在运行，会先执行 `stop()`。
-- `reloadFromJson*()` 可在 `Initialized`、`Running` 或 `Stopped` 状态事务式替换图；构建失败时保留旧图。
+- `reloadFromJson*()` / `reloadFromNodes()` 可在 `Initialized`、`Running` 或 `Stopped` 状态事务式替换图；构建失败时保留旧图。`Created` 态调用等价于首次加载；成功重载后，原 `Running` 图恢复运行，其余非终态图就绪为 `Initialized`。
 
 节点的 `start` / `stop` 并非每个节点都必须实现。没有启动或停止动作的节点可以直接使用默认钩子；但引擎级生命周期仍用于保证订阅先于数据发布、支持可逆停止，并在释放前收拢异步任务。派生节点只需按职责覆盖 `doInit()`、`doStart()`、`doStop()` 和 `doRelease()` 中必要的部分。
 
