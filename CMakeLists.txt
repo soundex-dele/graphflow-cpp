@@ -63,3 +63,8 @@ if(GRAPHFLOW_BUILD_TESTS)
     find_package(GTest CONFIG REQUIRED)
     add_subdirectory(tests)
 endif()
+
+option(GRAPHFLOW_BUILD_BENCHMARKS "Build standalone AV performance benchmarks" OFF)
+if(GRAPHFLOW_BUILD_BENCHMARKS)
+    add_subdirectory(benchmarks)
+endif()

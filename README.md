@@ -186,6 +186,7 @@ target_link_libraries(my_app PRIVATE graphflow::engine)
 | --- | --- | --- |
 | `GRAPHFLOW_BUILD_EXAMPLES` | `ON` | 构建仓库内示例 |
 | `GRAPHFLOW_BUILD_TESTS` | `OFF` | 构建 GoogleTest 测试 |
+| `GRAPHFLOW_BUILD_BENCHMARKS` | `OFF` | 构建独立音视频性能压测程序，不加入 CTest |
 
 | 目标 | 别名 | 说明 |
 | --- | --- | --- |
@@ -212,6 +213,8 @@ ctest --test-dir build-tests -C Release --output-on-failure
 ```
 
 测试目标为 `graphflow_core_tests` 和 `graphflow_engine_tests`。
+
+音视频性能极限测试程序为 `graphflow_av_bench`，支持同步/异步派发、多路 PCM/I420 合成载荷、深拷贝与共享引用、分支和深链，以及逐级加压和 JSON 指标报告。构建与使用说明见 [benchmarks/README.md](benchmarks/README.md)。
 
 ## 目录结构
 
