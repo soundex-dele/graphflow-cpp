@@ -28,6 +28,55 @@ void GraphNode::clearPubEdges() { m_pubEdges.clear(); }
 
 void GraphNode::setEventBus(EventBus* eventBus) { m_eventBus = eventBus; }
 
+void GraphNode::setFailureHandler(FailureHandler handler) {
+    auto installed = handler ? std::make_shared<FailureHandler>(std::move(handler)) : nullptr;
+    std::exception_ptr pending;
+    {
+        std::lock_guard lock(m_failureState->mutex);
+        m_failureState->handler = installed;
+        pending = m_failureState->failure;
+    }
+    if (installed && pending) {
+        (*installed)(pending);
+    }
+}
+
+void GraphNode::FailureState::report(std::exception_ptr value) noexcept {
+    if (!value) return;
+    std::shared_ptr<FailureHandler> notify;
+    {
+        std::lock_guard lock(mutex);
+        if (failure) return;
+        failure = value;
+        notify = handler;
+    }
+    if (notify) {
+        try {
+            (*notify)(value);
+        } catch (...) {
+            LOG_ERROR("GraphNode", "Failure handler could not dispatch node failure");
+        }
+    }
+}
+
+void GraphNode::reportFailure(std::exception_ptr value) noexcept {
+    m_failureState->report(value);
+}
+
+GraphNode::FailureHandler GraphNode::failureReporter() const {
+    return [state = m_failureState](std::exception_ptr value) { state->report(value); };
+}
+
+std::exception_ptr GraphNode::failure() const {
+    std::lock_guard lock(m_failureState->mutex);
+    return m_failureState->failure;
+}
+
+void GraphNode::clearFailure() {
+    std::lock_guard lock(m_failureState->mutex);
+    m_failureState->failure = {};
+}
+
 const std::vector<GraphEdge>& GraphNode::getSubEdges() const {
     std::ostringstream oss;
     oss << "getSubEdges count: " << m_subEdges.size();

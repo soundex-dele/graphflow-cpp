@@ -2,6 +2,9 @@
 #pragma once
 #include <atomic>
 #include <memory>
+#include <exception>
+#include <functional>
+#include <mutex>
 #include <sstream>
 #include <string>
 #include <type_traits>
@@ -29,6 +32,18 @@ public:
     void clearSubEdges();
     void clearPubEdges();
     void setEventBus(EventBus* eventBus);
+
+    // Failure delivery runs on the reporting thread. Owners must enqueue
+    // lifecycle work, never stop/join this node from its failure handler.
+    // The first failure is retained, including failures before registration.
+    using FailureHandler = std::function<void(std::exception_ptr)>;
+    void setFailureHandler(FailureHandler handler);
+    void reportFailure(std::exception_ptr failure) noexcept;
+    // Retainable report handle for shared devices. It owns only failure state,
+    // never the node; late device reports cannot dereference a destroyed node.
+    FailureHandler failureReporter() const;
+    std::exception_ptr failure() const;
+    void clearFailure();  // Only after workers are quiescent, before a restart.
 
     const std::vector<GraphEdge>& getSubEdges() const;
     const std::vector<GraphEdge>& getPubEdges() const;
@@ -72,7 +87,15 @@ protected:
                           << " declared dataType=" << edge.dataType() << ", mismatch, skip");
                 continue;
             }
-            edge.eventBus()->template subscribe<EventType>(edge.name(), CB(cb));
+            edge.eventBus()->template subscribe<EventType>(edge.name(),
+                [this, callback = CB(cb)](EventType& event) mutable {
+                    try {
+                        callback(event);
+                    } catch (...) {
+                        reportFailure(std::current_exception());
+                        throw;
+                    }
+                });
         }
     }
 
@@ -122,6 +145,15 @@ protected:
     std::vector<GraphEdge> m_subEdges;
     std::atomic<bool> m_halted{false};   // 软中断标志;halt() 置,clearHalt() 清
     const std::string TAG = "GraphNode";
+
+private:
+    struct FailureState {
+        mutable std::mutex mutex;
+        std::exception_ptr failure;
+        std::shared_ptr<FailureHandler> handler;
+        void report(std::exception_ptr value) noexcept;
+    };
+    std::shared_ptr<FailureState> m_failureState = std::make_shared<FailureState>();
 };
 
 }  // namespace graphflow::core
