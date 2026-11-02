@@ -13,7 +13,6 @@
 #include <vector>
 #include "utils/logger.h"
 #include "core/event.h"
-#include "utoolkit/threadpool/threadpool.h"
 
 namespace graphflow::core {
 
@@ -107,6 +106,7 @@ public:
         LOG_DEBUG("EventBus", "publish to: " << topic
                  << ", handlers: " << handlersCopy.size());
         for (auto& handler : handlersCopy) {
+#if defined(__cpp_exceptions) || defined(_CPPUNWIND)
             try {
                 handler->handle(event);
             } catch (const std::exception& e) {
@@ -114,6 +114,9 @@ public:
             } catch (...) {
                 LOG_ERROR("EventBus", "unknown handler exception");
             }
+#else
+                handler->handle(event);
+#endif
         }
     }
 
@@ -142,6 +145,7 @@ public:
             LOG_DEBUG("EventBus", "publishAsync to: " << topic);
             enqueueTopicTaskLocked(
                 topic, [handler, eventCopy = eventStorage]() mutable {
+#if defined(__cpp_exceptions) || defined(_CPPUNWIND)
                     try {
                         handler->handle(eventCopy);
                     } catch (const std::exception& e) {
@@ -149,6 +153,9 @@ public:
                     } catch (...) {
                         LOG_ERROR("EventBus", "unknown handler exception");
                     }
+#else
+                        handler->handle(eventCopy);
+#endif
                 });
         }
     }

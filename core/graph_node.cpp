@@ -61,6 +61,16 @@ void GraphNode::FailureState::report(std::exception_ptr value) noexcept {
 
 void GraphNode::reportFailure(std::exception_ptr value) noexcept {
     m_failureState->report(value);
+    if (value) {
+        GraphError error{"Legacy node failure", {}};
+        try {
+            std::rethrow_exception(value);
+        } catch (const std::exception& cause) {
+            error.message = cause.what();
+        } catch (...) {
+        }
+        m_errorState->report(std::move(error));
+    }
 }
 
 GraphNode::FailureHandler GraphNode::failureReporter() const {
@@ -75,6 +85,44 @@ std::exception_ptr GraphNode::failure() const {
 void GraphNode::clearFailure() {
     std::lock_guard lock(m_failureState->mutex);
     m_failureState->failure = {};
+}
+
+void GraphNode::setErrorHandler(ErrorHandler handler) {
+    auto installed = handler ? std::make_shared<ErrorHandler>(std::move(handler)) : nullptr;
+    std::optional<GraphError> pending;
+    {
+        std::lock_guard lock(m_errorState->mutex);
+        m_errorState->handler = installed;
+        pending = m_errorState->error;
+    }
+    if (installed && pending) (*installed)(*pending);
+}
+
+void GraphNode::ErrorState::report(GraphError value) {
+    std::shared_ptr<ErrorHandler> notify;
+    {
+        std::lock_guard lock(mutex);
+        if (error) return;
+        error = value;
+        notify = handler;
+    }
+    if (notify) (*notify)(value);
+}
+
+void GraphNode::reportError(GraphError value) { m_errorState->report(std::move(value)); }
+
+GraphNode::ErrorHandler GraphNode::errorReporter() const {
+    return [state = m_errorState](const GraphError& value) { state->report(value); };
+}
+
+std::optional<GraphError> GraphNode::error() const {
+    std::lock_guard lock(m_errorState->mutex);
+    return m_errorState->error;
+}
+
+void GraphNode::clearError() {
+    std::lock_guard lock(m_errorState->mutex);
+    m_errorState->error.reset();
 }
 
 const std::vector<GraphEdge>& GraphNode::getSubEdges() const {
@@ -119,3 +167,14 @@ bool GraphNode::isHalted() const noexcept {
 }
 
 }  // namespace graphflow::core
+
+namespace graphflow::core {
+void GraphNode::invokeCallback(void (*callback)(void*), void* context) {
+    try {
+        callback(context);
+    } catch (...) {
+        reportFailure(std::current_exception());
+        throw;
+    }
+}
+} // namespace graphflow::core

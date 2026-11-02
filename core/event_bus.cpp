@@ -1,5 +1,6 @@
 // core/event_bus.cpp
 #include "core/event_bus.h"
+#include "utoolkit/threadpool/threadpool.h"
 #include <condition_variable>
 
 namespace graphflow::core {

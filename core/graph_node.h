@@ -1,6 +1,8 @@
 // core/graph_node.h
 #pragma once
 #include <atomic>
+#include <any>
+#include <optional>
 #include <memory>
 #include <exception>
 #include <functional>
@@ -17,6 +19,13 @@
 #include "core/node_runtime_context.h"
 
 namespace graphflow::core {
+
+// Explicit failures for clients compiled without exception handling.
+// Use pointer-form any_cast to retrieve a client-owned detail record.
+struct GraphError {
+    std::string message;
+    std::any detail;
+};
 
 // GraphPortInfo 已删除：其三字段（edge / eventBus / dataType）已全部并入 GraphEdge。
 //   pub/sub 信息现在直接以 GraphEdge 表示：info.name()=topic, info.eventBus()=信道, info.dataType()=数据类型。
@@ -44,6 +53,17 @@ public:
     FailureHandler failureReporter() const;
     std::exception_ptr failure() const;
     void clearFailure();  // Only after workers are quiescent, before a restart.
+
+    // The legacy exception boundary lives in the library, so template definitions
+    // are identical for exception-enabled and exception-disabled consumers.
+    void invokeCallback(void (*callback)(void*), void* context);
+
+    using ErrorHandler = std::function<void(const GraphError&)>;
+    void setErrorHandler(ErrorHandler handler);
+    void reportError(GraphError error);
+    ErrorHandler errorReporter() const;
+    std::optional<GraphError> error() const;
+    void clearError(); // Workers must be quiescent before restarting.
 
     const std::vector<GraphEdge>& getSubEdges() const;
     const std::vector<GraphEdge>& getPubEdges() const;
@@ -89,12 +109,10 @@ protected:
             }
             edge.eventBus()->template subscribe<EventType>(edge.name(),
                 [this, callback = CB(cb)](EventType& event) mutable {
-                    try {
-                        callback(event);
-                    } catch (...) {
-                        reportFailure(std::current_exception());
-                        throw;
-                    }
+                    auto invoke = [&] { callback(event); };
+                    invokeCallback([](void* context) {
+                        (*static_cast<decltype(invoke)*>(context))();
+                    }, &invoke);
                 });
         }
     }
@@ -147,6 +165,13 @@ protected:
     const std::string TAG = "GraphNode";
 
 private:
+    struct ErrorState {
+        mutable std::mutex mutex;
+        std::optional<GraphError> error;
+        std::shared_ptr<ErrorHandler> handler;
+        void report(GraphError value);
+    };
+    std::shared_ptr<ErrorState> m_errorState = std::make_shared<ErrorState>();
     struct FailureState {
         mutable std::mutex mutex;
         std::exception_ptr failure;
